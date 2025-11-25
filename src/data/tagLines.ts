@@ -1,0 +1,17 @@
+export const tagLines = [
+    "Choose your level of emotional delusion:",
+    "Select your preferred flavor of validation:",
+    "Pick your affirmation intensity:",
+    "How unreasonably confident do you want to feel today?",
+    "Choose your daily dose of nonsense encouragement:",
+    "Pick how much we should lie to you:",
+    "Select your self-esteem difficulty setting:",
+    "Choose your ego inflation protocol:",
+    "Pick your hype level: Reality sold separately:",
+    "Choose your path to questionable confidence:",
+    "Emotional support intensity: choose wisely:",
+    "How hard should we gas you up?",
+    "Choose your interpretation of reality:",
+    "Select your optimism hallucination level:",
+    "Customize your psychological distortion:",
+];
