@@ -14,7 +14,7 @@ import ConfettiCannon from "react-native-confetti-cannon";
 
 import TierSelector from "../src/components/TierSelector";
 import { TierName, validationTiers } from "@/src/data/validationTiers";
-import { tagLines } from "@/src/data/tagLines"; // ← NEW IMPORT
+import { tagLines } from "@/src/data/tagLines";
 
 export default function HomeScreen() {
     const [selectedTier, setSelectedTier] = useState<TierName | null>(null);
@@ -217,9 +217,6 @@ export default function HomeScreen() {
                             },
                         ]}
                     >
-                        <Pressable style={styles.closeButton} onPress={closePopup}>
-                            <Text style={styles.closeButtonText}>×</Text>
-                        </Pressable>
 
                         <Text style={styles.popupTitle}>{selectedTier}</Text>
 
