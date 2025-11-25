@@ -9,7 +9,7 @@ export const tagLines = [
     "Choose your ego inflation protocol:",
     "Pick your hype level: Reality sold separately:",
     "Choose your path to questionable confidence:",
-    "Emotional support intensity: choose wisely:",
+    "Emotional support intensity: choose wisely",
     "How hard should we gas you up?",
     "Choose your interpretation of reality:",
     "Select your optimism hallucination level:",

@@ -39,7 +39,7 @@ export default function HomeScreen() {
         // load pop sound
         (async () => {
             const sound = new Audio.Sound();
-            await sound.loadAsync(require("../assets/sounds/pop.wav"));
+            await sound.loadAsync(require("../assets/sounds/pop.mp3"));
             popSound.current = sound;
         })();
 
@@ -294,8 +294,8 @@ const styles = StyleSheet.create({
         justifyContent: "center",
     },
     logoText: {
-        fontFamily: "Baloo",
-        fontSize: 48,
+        fontFamily: "DayOfTheTentacle",
+        fontSize: 98,
         color: "white",
         textTransform: "lowercase",
         textShadowColor: "rgba(0, 0, 0, 0.8)",
