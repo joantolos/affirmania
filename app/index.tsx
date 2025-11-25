@@ -9,6 +9,7 @@ import {
     StyleSheet as RNStyleSheet,
 } from "react-native";
 import { BlurView } from "expo-blur";
+import { Audio } from "expo-av";
 
 import TierSelector from "../src/components/TierSelector";
 import { TierName, validationTiers } from "@/src/data/validationTiers";
@@ -18,6 +19,8 @@ export default function HomeScreen() {
     const [selectedTier, setSelectedTier] = useState<TierName | null>(null);
     const [affirmation, setAffirmation] = useState("");
     const [isPopupVisible, setIsPopupVisible] = useState(false);
+
+    const popSound = useRef<Audio.Sound | null>(null);
 
     // NEW: tagline state
     const [tagline, setTagline] = useState("");
@@ -30,6 +33,20 @@ export default function HomeScreen() {
     // Pick random tagline once
     useEffect(() => {
         pickRandomTagline();
+
+        // load pop sound
+        (async () => {
+            const sound = new Audio.Sound();
+            await sound.loadAsync(require("../assets/sounds/pop.wav"));
+            popSound.current = sound;
+        })();
+
+        return () => {
+            // unload
+            if (popSound.current) {
+                popSound.current.unloadAsync();
+            }
+        };
     }, []);
 
     // Animations
@@ -105,6 +122,11 @@ export default function HomeScreen() {
 
     const generateAffirmation = () => {
         if (!selectedTier) return;
+
+        // play pop sound
+        if (popSound.current) {
+            popSound.current.replayAsync();
+        }
 
         const options = validationTiers[selectedTier];
         const random = options[Math.floor(Math.random() * options.length)];
