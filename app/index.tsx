@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { Audio } from "expo-av";
+import ConfettiCannon from "react-native-confetti-cannon";
 
 import TierSelector from "../src/components/TierSelector";
 import { TierName, validationTiers } from "@/src/data/validationTiers";
@@ -21,6 +22,7 @@ export default function HomeScreen() {
     const [isPopupVisible, setIsPopupVisible] = useState(false);
 
     const popSound = useRef<Audio.Sound | null>(null);
+    const confettiRef = useRef(null);
 
     // NEW: tagline state
     const [tagline, setTagline] = useState("");
@@ -140,9 +142,18 @@ export default function HomeScreen() {
         setIsPopupVisible(true);
 
         // tier-specific animation
-        if (selectedTier === "Mildly Noticed") animateMildlyNoticed();
-        else if (selectedTier === "Hyper Esteem") animateHyperEsteem();
-        else animateDelusionalGreatness();
+        if (selectedTier === "Mildly Noticed") {
+            animateMildlyNoticed();
+        } else if (selectedTier === "Hyper Esteem") {
+            animateHyperEsteem();
+        } else {
+            animateDelusionalGreatness();
+
+            // 💥 CONFETTI for TIER 3
+            setTimeout(() => {
+                confettiRef.current?.start();
+            }, 150); // matches popup animation
+        }
     };
 
     const closePopup = () => {
@@ -216,6 +227,15 @@ export default function HomeScreen() {
                     </Animated.View>
                 </View>
             )}
+            <ConfettiCannon
+                ref={confettiRef}
+                count={80}            // amount of confetti
+                origin={{ x: -10, y: 0 }} // start point
+                fadeOut={true}
+                autoStart={false}
+                explosionSpeed={350}
+                fallSpeed={3000}
+            />
         </View>
     );
 }
