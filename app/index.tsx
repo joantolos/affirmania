@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
     View,
     Text,
@@ -6,228 +6,277 @@ import {
     StyleSheet,
     Animated,
     Easing,
-    StyleSheet as RNStyleSheet,
+    PanResponder,
+    Modal,
+    Linking,
 } from "react-native";
-import { BlurView } from "expo-blur";
 import { Audio } from "expo-av";
 import ConfettiCannon from "react-native-confetti-cannon";
+import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import TierSelector from "../src/components/TierSelector";
 import { TierName, validationTiers } from "@/src/data/validationTiers";
 import { tagLines } from "@/src/data/tagLines";
 
+type ConfettiHandle = { start: () => void };
+
+const TIERS: TierName[] = ["Mildly Noticed", "Hyper Esteem", "Delusional Greatness"];
+
+const TIER_ACCENT: Record<TierName, string> = {
+    "Mildly Noticed": "#F4D060",
+    "Hyper Esteem": "#F07040",
+    "Delusional Greatness": "#E0306A",
+};
+
+const TIER_ICONS: Record<TierName, keyof typeof Ionicons.glyphMap> = {
+    "Mildly Noticed": "sunny-outline",
+    "Hyper Esteem": "star-outline",
+    "Delusional Greatness": "rocket-outline",
+};
+
+
+function pickRandom<T>(arr: readonly T[]): T {
+    return arr[Math.floor(Math.random() * arr.length)];
+}
+
 export default function HomeScreen() {
-    const [selectedTier, setSelectedTier] = useState<TierName | null>(null);
+    const insets = useSafeAreaInsets();
+
     const [affirmation, setAffirmation] = useState("");
-    const [isPopupVisible, setIsPopupVisible] = useState(false);
-
-    const popSound = useRef<Audio.Sound | null>(null);
-    const confettiRef = useRef(null);
-
-    // NEW: tagline state
+    const [selectedTier, setSelectedTier] = useState<TierName>("Mildly Noticed");
     const [tagline, setTagline] = useState("");
+    const [activeDragTier, setActiveDragTier] = useState<TierName | null>(null);
+    const [aboutVisible, setAboutVisible] = useState(false);
 
-    const pickRandomTagline = () => {
-        const random = tagLines[Math.floor(Math.random() * tagLines.length)];
-        setTagline(random);
-    };
+    const popSoundRef = useRef<Audio.Sound | null>(null);
+    const confettiRef = useRef<ConfettiHandle | null>(null);
+    const confettiTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const activeDragTierRef = useRef<TierName | null>(null);
+    const selectedTierRef = useRef<TierName>("Mildly Noticed");
+    const generateRef = useRef<((tier: TierName) => void) | null>(null);
 
-    // Pick random tagline once
+    const textOpacityAnim = useRef(new Animated.Value(0)).current;
+    const textTranslateYAnim = useRef(new Animated.Value(0)).current;
+    const arrowBounce = useRef(new Animated.Value(0)).current;
+    const pendingAffirmation = useRef<{ text: string; tier: TierName } | null>(null);
+
     useEffect(() => {
-        pickRandomTagline();
+        setTagline(pickRandom(tagLines));
 
-        // load pop sound
+        const loop = Animated.loop(
+            Animated.sequence([
+                Animated.timing(arrowBounce, { toValue: -10, duration: 520, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+                Animated.timing(arrowBounce, { toValue: 0, duration: 520, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+            ])
+        );
+        loop.start();
+
+        let isMounted = true;
         (async () => {
-            const sound = new Audio.Sound();
-            await sound.loadAsync(require("../assets/sounds/pop.mp3"));
-            popSound.current = sound;
+            try {
+                const sound = new Audio.Sound();
+                await sound.loadAsync(require("../assets/sounds/pop.mp3"));
+                if (!isMounted) { await sound.unloadAsync(); return; }
+                popSoundRef.current = sound;
+            } catch (e) {
+                console.warn("Could not load pop sound", e);
+            }
         })();
 
         return () => {
-            // unload
-            if (popSound.current) {
-                popSound.current.unloadAsync();
-            }
+            isMounted = false;
+            loop.stop();
+            if (confettiTimeoutRef.current) clearTimeout(confettiTimeoutRef.current);
+            void popSoundRef.current?.unloadAsync();
         };
-    }, []);
+    }, [arrowBounce]);
 
-    // Animations
-    const scaleAnim = useRef(new Animated.Value(1)).current;
-    const opacityAnim = useRef(new Animated.Value(0)).current;
-    const translateYAnim = useRef(new Animated.Value(0)).current;
+    const animateIn = useCallback(() => {
+        textTranslateYAnim.setValue(50);
+        textOpacityAnim.setValue(0);
+        Animated.parallel([
+            Animated.timing(textOpacityAnim, { toValue: 1, duration: 220, useNativeDriver: true }),
+            Animated.spring(textTranslateYAnim, { toValue: 0, friction: 7, tension: 100, useNativeDriver: true }),
+        ]).start();
+    }, [textOpacityAnim, textTranslateYAnim]);
 
-    // --- Tier-Specific Animations ---
-    const animateMildlyNoticed = () => {
-        scaleAnim.setValue(0.97);
-        opacityAnim.setValue(0);
+    const generateAffirmation = useCallback((tier: TierName) => {
+        void popSoundRef.current?.replayAsync();
+        setSelectedTier(tier);
+        setTagline(pickRandom(tagLines));
+
+        const next = pickRandom(validationTiers[tier]);
+        pendingAffirmation.current = { text: next, tier };
 
         Animated.parallel([
-            Animated.timing(opacityAnim, {
-                toValue: 1,
-                duration: 180,
-                useNativeDriver: true,
-            }),
-            Animated.timing(scaleAnim, {
-                toValue: 1,
-                duration: 180,
-                easing: Easing.out(Easing.ease),
-                useNativeDriver: true,
-            }),
-        ]).start();
-    };
+            Animated.timing(textOpacityAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
+            Animated.timing(textTranslateYAnim, { toValue: -40, duration: 150, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+        ]).start(() => {
+            const pending = pendingAffirmation.current;
+            if (!pending) return;
+            pendingAffirmation.current = null;
+            setAffirmation(pending.text);
+            animateIn();
+            if (pending.tier === "Delusional Greatness") {
+                if (confettiTimeoutRef.current) clearTimeout(confettiTimeoutRef.current);
+                confettiTimeoutRef.current = setTimeout(() => {
+                    confettiRef.current?.start();
+                }, 100);
+            }
+        });
+    }, [textOpacityAnim, textTranslateYAnim, animateIn]);
 
-    const animateHyperEsteem = () => {
-        translateYAnim.setValue(-20);
-        opacityAnim.setValue(0);
+    useEffect(() => {
+        generateRef.current = generateAffirmation;
+    }, [generateAffirmation]);
 
-        Animated.parallel([
-            Animated.spring(translateYAnim, {
-                toValue: 0,
-                friction: 5,
-                tension: 120,
-                useNativeDriver: true,
-            }),
-            Animated.timing(opacityAnim, {
-                toValue: 1,
-                duration: 250,
-                useNativeDriver: true,
-            }),
-        ]).start();
-    };
+    useEffect(() => {
+        selectedTierRef.current = selectedTier;
+    }, [selectedTier]);
 
-    const animateDelusionalGreatness = () => {
-        scaleAnim.setValue(0.3);
-        opacityAnim.setValue(0);
+    useEffect(() => {
+        generateAffirmation("Mildly Noticed");
+    }, [generateAffirmation]);
 
-        Animated.parallel([
-            Animated.sequence([
-                Animated.timing(scaleAnim, {
-                    toValue: 1.25,
-                    duration: 180,
-                    easing: Easing.out(Easing.back(3)),
-                    useNativeDriver: true,
-                }),
-                Animated.timing(scaleAnim, {
-                    toValue: 1,
-                    duration: 120,
-                    easing: Easing.out(Easing.ease),
-                    useNativeDriver: true,
-                }),
-            ]),
-            Animated.timing(opacityAnim, {
-                toValue: 1,
-                duration: 260,
-                useNativeDriver: true,
-            }),
-        ]).start();
-    };
+    const panResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => false,
+            onMoveShouldSetPanResponder: (_, gs) => gs.dy < -20,
+            onPanResponderGrant: () => {
+                const tier = selectedTierRef.current;
+                activeDragTierRef.current = tier;
+                setActiveDragTier(tier);
+            },
+            onPanResponderRelease: () => {
+                const tier = activeDragTierRef.current;
+                activeDragTierRef.current = null;
+                setActiveDragTier(null);
+                if (tier) generateRef.current?.(tier);
+            },
+            onPanResponderTerminate: () => {
+                activeDragTierRef.current = null;
+                setActiveDragTier(null);
+            },
+        })
+    ).current;
 
-    const generateAffirmation = () => {
-        if (!selectedTier) return;
-
-        // play pop sound
-        if (popSound.current) {
-            popSound.current.replayAsync();
-        }
-
-        const options = validationTiers[selectedTier];
-        const random = options[Math.floor(Math.random() * options.length)];
-        setAffirmation(random);
-
-        // reset animation state
-        opacityAnim.setValue(0);
-        scaleAnim.setValue(1);
-        translateYAnim.setValue(0);
-
-        setIsPopupVisible(true);
-
-        // tier-specific animation
-        if (selectedTier === "Mildly Noticed") {
-            animateMildlyNoticed();
-        } else if (selectedTier === "Hyper Esteem") {
-            animateHyperEsteem();
-        } else {
-            animateDelusionalGreatness();
-
-            // 💥 CONFETTI for TIER 3
-            setTimeout(() => {
-                confettiRef.current?.start();
-            }, 150); // matches popup animation
-        }
-    };
-
-    const closePopup = () => {
-        setIsPopupVisible(false);
-        pickRandomTagline();
-    };
+    const showArrows = !activeDragTier;
 
     return (
-        <View style={styles.container}>
-            <View style={styles.logoContainer}>
-                <Text style={styles.logoText}>affirmania</Text>
-            </View>
+        <View style={styles.screen} {...panResponder.panHandlers}>
 
-            {/* NEW: dynamic tagline */}
-            <Text style={styles.tagline}>{tagline}</Text>
+            <View style={[styles.content, { paddingTop: Math.max(insets.top, 50) }]}>
 
-            <TierSelector selected={selectedTier} onSelect={setSelectedTier} />
-
-            <Pressable
-                style={({ pressed }) => [
-                    styles.button,
-                    !selectedTier && { opacity: 0.4 },
-                    pressed && { transform: [{ scale: 0.96 }] }, // tiny bounce
-                ]}
-                disabled={!selectedTier}
-                onPress={generateAffirmation}
-            >
-                <Text style={styles.buttonText}>Validate Me!</Text>
-            </Pressable>
-
-            <View style={styles.footer}>
-                <Text style={styles.footerText}>2025 Affirmania ™️</Text>
-                <Text style={styles.footerText}>The single greatest misuse of software engineering talent since blockchain smoothies.</Text>
-                <Text style={styles.footerText}>
-                    No emotions were harmed in the making of this app.
-                </Text>
-            </View>
-
-            {/* --- POPUP OVERLAY --- */}
-            {isPopupVisible && (
-                <View style={styles.popupContainer}>
-                    {/* Blurred backdrop */}
-                    <Pressable style={styles.backdropPress} onPress={closePopup}>
-                        <BlurView
-                            intensity={40}
-                            tint="dark"
-                            style={RNStyleSheet.absoluteFillObject}
-                        />
-                    </Pressable>
-
-                    {/* Popup card */}
-                    <Animated.View
-                        style={[
-                            styles.popupCard,
-                            {
-                                opacity: opacityAnim,
-                                transform: [
-                                    { scale: scaleAnim },
-                                    { translateY: translateYAnim },
-                                ],
-                            },
-                        ]}
+                <View style={styles.logoContainer}>
+                    <Text style={styles.logoText}>affirmania</Text>
+                    <Pressable
+                        style={styles.infoButton}
+                        onPress={() => setAboutVisible(true)}
+                        accessibilityLabel="About"
+                        accessibilityRole="button"
                     >
-
-                        <Text style={styles.popupTitle}>{selectedTier}</Text>
-
-                        <Text style={styles.popupText}>{affirmation}</Text>
-                    </Animated.View>
+                        <Ionicons name="information-circle-outline" size={26} color="rgba(255,255,255,0.7)" />
+                    </Pressable>
                 </View>
-            )}
+
+                {/* Tagline — only shown when no affirmation is on screen */}
+                {!affirmation && (
+                    <Text style={styles.tagline}>{tagline}</Text>
+                )}
+
+                {/* Center — affirmation text or idle prompt */}
+                <View style={styles.centerArea}>
+                    {affirmation ? (
+                        <Animated.Text
+                            style={[
+                                styles.affirmationText,
+                                {
+                                    opacity: textOpacityAnim,
+                                    transform: [
+                                        { translateY: textTranslateYAnim },
+                                    ],
+                                },
+                            ]}
+                        >
+                            {affirmation}
+                        </Animated.Text>
+                    ) : (
+                        activeDragTier ? (
+                            <Text style={[styles.activeDragLabel, { color: TIER_ACCENT[activeDragTier] }]}>
+                                {activeDragTier}
+                            </Text>
+                        ) : null
+                    )}
+                </View>
+
+                {/* Pull hint — only bounces when idle with no affirmation */}
+                <Animated.View
+                    style={[
+                        styles.pullHintContainer,
+                        !affirmation && showArrows && { transform: [{ translateY: arrowBounce }] },
+                    ]}
+                >
+                    <Text style={styles.pullHintText}>
+                        {activeDragTier
+                            ? "↑  release to validate  ↑"
+                            : affirmation
+                                ? tagline
+                                : "↑  pull up to get validated  ↑"}
+                    </Text>
+                </Animated.View>
+
+            </View>
+
+            {/* Bottom nav bar */}
+            <View style={[styles.navBar, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+                {TIERS.map((tier) => {
+                    const isSelected = tier === selectedTier;
+                    const accentColor = TIER_ACCENT[tier];
+                    return (
+                        <Pressable
+                            key={tier}
+                            style={({ pressed }) => [styles.navTab, pressed && { opacity: 0.6 }]}
+                            onPress={() => generateRef.current?.(tier)}
+                            accessibilityRole="tab"
+                            accessibilityState={{ selected: tier === selectedTier }}
+                            accessibilityLabel={tier}
+                        >
+                            <Ionicons
+                                name={isSelected ? TIER_ICONS[tier].replace("-outline", "") as keyof typeof Ionicons.glyphMap : TIER_ICONS[tier]}
+                                size={26}
+                                color={isSelected ? accentColor : "rgba(255,255,255,0.38)"}
+                            />
+                            <Text style={[styles.navTabLabel, isSelected && { color: accentColor }]}>
+                                {tier}
+                            </Text>
+                        </Pressable>
+                    );
+                })}
+            </View>
+
+            <Modal
+                visible={aboutVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setAboutVisible(false)}
+            >
+                <Pressable style={styles.modalOverlay} onPress={() => setAboutVisible(false)}>
+                    <Pressable style={styles.modalCard} onPress={() => {}}>
+                        <Text style={styles.modalTitle}>About</Text>
+                        <Text style={styles.modalBody}>2025 Affirmania ™️</Text>
+                        <Text style={styles.modalBody}>The single greatest misuse of software engineering talent since blockchain smoothies.</Text>
+                        <Text style={styles.modalBody}>No emotions were harmed in the making of this app.</Text>
+                        <Pressable onPress={() => Linking.openURL("https://www.joantolos.com")}>
+                            <Text style={styles.modalLink}>Want to know more?</Text>
+                        </Pressable>
+                    </Pressable>
+                </Pressable>
+            </Modal>
+
             <ConfettiCannon
                 ref={confettiRef}
-                count={80}            // amount of confetti
-                origin={{ x: -10, y: 0 }} // start point
+                count={80}
+                origin={{ x: -10, y: 0 }}
                 fadeOut={true}
                 autoStart={false}
                 explosionSpeed={350}
@@ -238,61 +287,28 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: {
+    screen: {
         flex: 1,
-        paddingHorizontal: 22,
-        paddingTop: 80,
         backgroundColor: "#D49B42",
     },
-    tagline: {
-        fontSize: 14,
-        textAlign: "center",
-        marginTop: 10,
-        opacity: 0.7,
-    },
-    button: {
-        backgroundColor: "#FF6F61",
-        paddingVertical: 16,
-        paddingHorizontal: 30,
-        borderRadius: 30,
-
-        // Cartoon shadow
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.25,
-        shadowRadius: 8,
-        elevation: 6,
-
-        alignSelf: "center",
-        marginTop: 30,
-    },
-    buttonText: {
-        fontFamily: "Baloo",
-        color: "white",
-        fontSize: 22,
-        textAlign: "center",
-        fontWeight: "700",
-        letterSpacing: 1,
-    },
-    footer: {
-        position: "absolute",
-        bottom: 20,
-        left: 20,
-        right: 20,
-    },
-    footerText: {
-        textAlign: "center",
-        fontSize: 12,
-        opacity: 0.6,
+    content: {
+        flex: 1,
+        paddingHorizontal: 24,
     },
     logoContainer: {
-        marginTop: 40,
         alignItems: "center",
         justifyContent: "center",
+        marginTop: 24,
+    },
+    infoButton: {
+        position: "absolute",
+        right: 0,
+        bottom: 0,
+        padding: 8,
     },
     logoText: {
         fontFamily: "DayOfTheTentacle",
-        fontSize: 98,
+        fontSize: 86,
         color: "white",
         textTransform: "lowercase",
         textShadowColor: "rgba(0, 0, 0, 0.8)",
@@ -300,61 +316,103 @@ const styles = StyleSheet.create({
         textShadowRadius: 1,
         letterSpacing: 1,
     },
-
-    // --- POPUP ---
-    popupContainer: {
-        ...RNStyleSheet.absoluteFillObject,
+    tagline: {
+        fontSize: 14,
+        textAlign: "center",
+        marginTop: 6,
+        color: "white",
+        opacity: 0.7,
+    },
+    centerArea: {
+        flex: 1,
         justifyContent: "center",
         alignItems: "center",
+        paddingHorizontal: 8,
     },
-    backdropPress: {
-        ...RNStyleSheet.absoluteFillObject,
-    },
-    popupCard: {
-        backgroundColor: "white",
-        borderRadius: 24,
-        width: "85%",
-        maxWidth: 340,
-        paddingVertical: 28,
-        paddingHorizontal: 22,
-        alignItems: "center",
-        justifyContent: "center",
-
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.25,
-        shadowRadius: 20,
-        elevation: 10,
-    },
-    closeButton: {
-        position: "absolute",
-        top: 8,
-        right: 14,
-        padding: 4,
-        zIndex: 2,
-    },
-    closeButtonText: {
-        fontSize: 26,
-        lineHeight: 26,
-    },
-    popupTitle: {
+    affirmationText: {
         fontFamily: "Baloo",
-        fontSize: 28,
+        fontSize: 44,
+        color: "white",
+        textAlign: "center",
+        lineHeight: 58,
+        textShadowColor: "rgba(0,0,0,0.25)",
+        textShadowOffset: { width: 1, height: 2 },
+        textShadowRadius: 4,
+    },
+    activeDragLabel: {
+        fontFamily: "Baloo",
+        fontSize: 34,
         fontWeight: "700",
         textAlign: "center",
-        marginBottom: 12,
-
-        textShadowColor: "rgba(0, 0, 0, 0.35)",
-        textShadowOffset: { width: 1, height: 1 },
-        textShadowRadius: 2,
-
-        letterSpacing: 1,
+        textShadowColor: "rgba(0,0,0,0.2)",
+        textShadowOffset: { width: 2, height: 2 },
+        textShadowRadius: 4,
     },
-    popupText: {
+    pullHintContainer: {
+        alignItems: "center",
+        paddingBottom: 16,
+    },
+    pullHintText: {
         fontFamily: "Baloo",
-        fontSize: 26,
+        fontSize: 16,
+        color: "white",
+        opacity: 0.9,
         textAlign: "center",
-        lineHeight: 34,
-        paddingHorizontal: 10,
+    },
+
+    // Bottom nav bar
+    navBar: {
+        flexDirection: "row",
+        backgroundColor: "rgba(28, 12, 2, 0.88)",
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: "rgba(255,255,255,0.15)",
+        paddingTop: 10,
+    },
+    navTab: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 4,
+        paddingVertical: 4,
+    },
+    navTabLabel: {
+        fontFamily: "Baloo",
+        fontSize: 11,
+        color: "rgba(255,255,255,0.38)",
+        textAlign: "center",
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.55)",
+        justifyContent: "center",
+        alignItems: "center",
+        padding: 32,
+    },
+    modalCard: {
+        backgroundColor: "white",
+        borderRadius: 20,
+        padding: 28,
+        width: "100%",
+        alignItems: "center",
+        gap: 16,
+    },
+    modalTitle: {
+        fontFamily: "Baloo",
+        fontSize: 28,
+        color: "#333",
+    },
+    modalBody: {
+        fontFamily: "Baloo",
+        fontSize: 16,
+        color: "#555",
+        textAlign: "center",
+        lineHeight: 24,
+    },
+    modalLink: {
+        fontFamily: "Baloo",
+        fontSize: 16,
+        color: "#D49B42",
+        textDecorationLine: "underline",
+        textAlign: "center",
     },
 });

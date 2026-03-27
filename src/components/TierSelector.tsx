@@ -1,27 +1,27 @@
 import { View, Text, Pressable, StyleSheet } from "react-native";
-import { TierName } from "../data/validationTiers";
+import { TierName, validationTiers } from "../data/validationTiers";
 
 interface Props {
     selected: TierName | null;
     onSelect: (tier: TierName) => void;
 }
 
-export default function TierSelector({ selected, onSelect }: Props) {
-    const tiers: TierName[] = [
-        "Mildly Noticed",
-        "Hyper Esteem",
-        "Delusional Greatness",
-    ];
+const tiers = Object.keys(validationTiers) as TierName[];
 
+export default function TierSelector({ selected, onSelect }: Props) {
     return (
         <View style={styles.container}>
             {tiers.map((tier) => (
                 <Pressable
                     key={tier}
                     onPress={() => onSelect(tier)}
-                    style={[
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: selected === tier }}
+                    accessibilityLabel={`Select ${tier} tier`}
+                    style={({ pressed }) => [
                         styles.tierButton,
                         selected === tier && styles.tierButtonSelected,
+                        pressed && { opacity: 0.75, transform: [{ scale: 0.97 }] },
                     ]}
                 >
                     <Text
